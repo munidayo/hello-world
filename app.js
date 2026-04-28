@@ -1,173 +1,504 @@
-/* docx 解凍アプリ
+/* Mini Word — ローカル docx ビューア
  *
- * .docx は OOXML（ZIP）アーカイブなので、JSZip でブラウザ内だけで解凍できる。
- * このファイルは UI とファイルツリーの構築、プレビュー、テキスト抽出、
- * メタデータ抽出を担当する。
+ * .docx ファイルをブラウザだけで読み込み、Word のように紙面表示するアプリ。
+ * 変換は mammoth.js（docx → HTML）を使用。
  */
 
 (function () {
   "use strict";
 
   const els = {
+    body: document.body,
+    welcome: document.getElementById("welcome"),
     dropzone: document.getElementById("dropzone"),
     fileInput: document.getElementById("fileInput"),
-    pickBtn: document.getElementById("pickBtn"),
+    paperWrap: document.getElementById("paperWrap"),
+    paper: document.getElementById("paper"),
+    paperScale: document.getElementById("paperScale"),
+    workspace: document.getElementById("workspace"),
+    docName: document.getElementById("docName"),
+    docStats: document.getElementById("docStats"),
     status: document.getElementById("status"),
-    result: document.getElementById("result"),
-    fileName: document.getElementById("fileName"),
-    fileMeta: document.getElementById("fileMeta"),
-    copyTextBtn: document.getElementById("copyTextBtn"),
-    downloadAllBtn: document.getElementById("downloadAllBtn"),
-    resetBtn: document.getElementById("resetBtn"),
-    tabs: document.querySelectorAll(".tab"),
-    panels: {
-      files: document.getElementById("panel-files"),
-      text: document.getElementById("panel-text"),
-      meta: document.getElementById("panel-meta"),
-    },
-    tree: document.getElementById("tree"),
-    preview: document.getElementById("preview"),
-    previewName: document.getElementById("previewName"),
-    downloadOneBtn: document.getElementById("downloadOneBtn"),
-    bodyText: document.getElementById("bodyText"),
-    metaTable: document.querySelector("#metaTable tbody"),
+    footStatus: document.getElementById("footStatus"),
+    footMeta: document.getElementById("footMeta"),
+
+    openBtn: document.getElementById("openBtn"),
+    printBtn: document.getElementById("printBtn"),
+    downloadHtmlBtn: document.getElementById("downloadHtmlBtn"),
+    zoomInBtn: document.getElementById("zoomInBtn"),
+    zoomOutBtn: document.getElementById("zoomOutBtn"),
+    fitWidthBtn: document.getElementById("fitWidthBtn"),
+    zoomValue: document.getElementById("zoomValue"),
+    darkToggle: document.getElementById("darkToggle"),
+
+    searchInput: document.getElementById("searchInput"),
+    searchPrevBtn: document.getElementById("searchPrevBtn"),
+    searchNextBtn: document.getElementById("searchNextBtn"),
+    searchCounter: document.getElementById("searchCounter"),
   };
 
-  /** 現在開いているアーカイブの状態 */
+  /** 状態 */
   const state = {
-    zip: null,
     fileName: "",
     fileSize: 0,
-    entries: [],
-    selectedPath: null,
+    html: "",
+    plainText: "",
+    zoom: 1, // 1 = 100%
+    isFitWidth: false,
+    search: {
+      query: "",
+      hits: [],
+      activeIndex: -1,
+    },
   };
 
-  // ---------- ドラッグ＆ドロップ ----------
-  ["dragenter", "dragover"].forEach((evt) => {
-    els.dropzone.addEventListener(evt, (e) => {
+  const ZOOM_STEPS = [0.5, 0.6, 0.75, 0.85, 1, 1.15, 1.25, 1.5, 1.75, 2];
+
+  init();
+
+  function init() {
+    setupTheme();
+    setupOpen();
+    setupDragDrop();
+    setupZoom();
+    setupSearch();
+    setupKeys();
+    setupFooter();
+    applyZoom();
+    setFooter("準備完了");
+  }
+
+  // ---------- テーマ ----------
+  function setupTheme() {
+    const saved = localStorage.getItem("miniword.theme");
+    const dark = saved === "dark";
+    els.darkToggle.checked = dark;
+    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    els.darkToggle.addEventListener("change", () => {
+      const isDark = els.darkToggle.checked;
+      document.documentElement.dataset.theme = isDark ? "dark" : "light";
+      localStorage.setItem("miniword.theme", isDark ? "dark" : "light");
+    });
+  }
+
+  // ---------- 開く ----------
+  function setupOpen() {
+    els.openBtn.addEventListener("click", () => els.fileInput.click());
+    els.dropzone.addEventListener("click", () => els.fileInput.click());
+    els.dropzone.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        els.fileInput.click();
+      }
+    });
+
+    els.fileInput.addEventListener("change", () => {
+      const file = els.fileInput.files && els.fileInput.files[0];
+      if (file) handleFile(file);
+      els.fileInput.value = "";
+    });
+
+    els.printBtn.addEventListener("click", () => window.print());
+    els.downloadHtmlBtn.addEventListener("click", saveAsHtml);
+  }
+
+  // ---------- ドラッグ＆ドロップ（ページ全体） ----------
+  function setupDragDrop() {
+    let dragCounter = 0;
+    window.addEventListener("dragenter", (e) => {
+      if (!hasFiles(e)) return;
       e.preventDefault();
-      e.stopPropagation();
+      dragCounter++;
+      els.body.classList.add("is-dragging");
       els.dropzone.classList.add("dragging");
     });
-  });
-  ["dragleave", "drop"].forEach((evt) => {
-    els.dropzone.addEventListener(evt, (e) => {
+    window.addEventListener("dragover", (e) => {
+      if (!hasFiles(e)) return;
       e.preventDefault();
-      e.stopPropagation();
+      e.dataTransfer.dropEffect = "copy";
+    });
+    window.addEventListener("dragleave", () => {
+      dragCounter = Math.max(0, dragCounter - 1);
+      if (dragCounter === 0) {
+        els.body.classList.remove("is-dragging");
+        els.dropzone.classList.remove("dragging");
+      }
+    });
+    window.addEventListener("drop", (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      dragCounter = 0;
+      els.body.classList.remove("is-dragging");
       els.dropzone.classList.remove("dragging");
+      const file = e.dataTransfer.files && e.dataTransfer.files[0];
+      if (file) handleFile(file);
     });
-  });
+  }
 
-  els.dropzone.addEventListener("drop", (e) => {
-    const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-    if (file) handleFile(file);
-  });
+  function hasFiles(e) {
+    if (!e.dataTransfer) return false;
+    const types = e.dataTransfer.types;
+    if (!types) return false;
+    return Array.from(types).includes("Files");
+  }
 
-  els.dropzone.addEventListener("click", (e) => {
-    if (e.target === els.pickBtn) return;
-    els.fileInput.click();
-  });
-
-  els.pickBtn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    els.fileInput.click();
-  });
-
-  els.fileInput.addEventListener("change", () => {
-    const file = els.fileInput.files && els.fileInput.files[0];
-    if (file) handleFile(file);
-    els.fileInput.value = "";
-  });
-
-  els.resetBtn.addEventListener("click", () => {
-    state.zip = null;
-    state.entries = [];
-    state.selectedPath = null;
-    els.result.classList.add("hidden");
-    setStatus("");
-  });
-
-  els.downloadAllBtn.addEventListener("click", async () => {
-    if (!state.zip) return;
-    setStatus("ZIP を再パッケージしています…");
-    try {
-      const blob = await state.zip.generateAsync({ type: "blob" });
-      const baseName = state.fileName.replace(/\.[^.]+$/, "") || "document";
-      triggerDownload(blob, baseName + "-extracted.zip");
-      setStatus("");
-    } catch (err) {
-      setStatus("ZIP の生成に失敗しました: " + err.message, true);
-    }
-  });
-
-  els.copyTextBtn.addEventListener("click", async () => {
-    const text = els.bodyText.textContent || "";
-    if (!text) {
-      setStatus("コピーできるテキストがありません", true);
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(text);
-      setStatus("本文テキストをクリップボードにコピーしました");
-      setTimeout(() => setStatus(""), 1500);
-    } catch (err) {
-      setStatus("コピーに失敗しました: " + err.message, true);
-    }
-  });
-
-  // ---------- タブ切り替え ----------
-  els.tabs.forEach((tab) => {
-    tab.addEventListener("click", () => {
-      const target = tab.dataset.tab;
-      els.tabs.forEach((t) => {
-        const active = t === tab;
-        t.classList.toggle("active", active);
-        t.setAttribute("aria-selected", active ? "true" : "false");
-      });
-      Object.entries(els.panels).forEach(([key, panel]) => {
-        const active = key === target;
-        panel.classList.toggle("active", active);
-        panel.hidden = !active;
-      });
-    });
-  });
-
-  // ---------- メイン処理 ----------
+  // ---------- ファイル読み込み ----------
   async function handleFile(file) {
+    if (!/\.docx$/i.test(file.name)) {
+      const ok = confirm(
+        `「${file.name}」は .docx 拡張子ではありません。\nそれでも開いてみますか？`
+      );
+      if (!ok) return;
+    }
+
     setStatus(`「${file.name}」を読み込んでいます…`);
+    setFooter("読み込み中…");
     try {
       const buf = await file.arrayBuffer();
-      const zip = await JSZip.loadAsync(buf);
-      state.zip = zip;
+
+      if (typeof window.mammoth === "undefined") {
+        throw new Error(
+          "mammoth.js を読み込めませんでした。インターネット接続を確認してください。"
+        );
+      }
+
+      const result = await window.mammoth.convertToHtml(
+        { arrayBuffer: buf },
+        {
+          // mammoth は既定で base64 画像にしてくれる
+          includeDefaultStyleMap: true,
+        }
+      );
+      const textResult = await window.mammoth.extractRawText({
+        arrayBuffer: buf,
+      });
+
       state.fileName = file.name;
       state.fileSize = file.size;
-      state.entries = collectEntries(zip);
-      state.selectedPath = null;
+      state.html = result.value || "<p><em>(本文がありません)</em></p>";
+      state.plainText = (textResult.value || "").trim();
 
-      els.fileName.textContent = file.name;
-      els.fileMeta.textContent = formatHeaderMeta(file, state.entries);
+      els.docName.textContent = file.name;
+      els.paper.innerHTML = state.html;
 
-      buildTree(state.entries);
-      resetPreview();
-      await renderBodyText(zip);
-      await renderMeta(zip, file);
+      const stats = computeStats(state.plainText);
+      const meta = [
+        formatBytes(file.size),
+        `${stats.chars.toLocaleString()} 文字`,
+        `${stats.words.toLocaleString()} 単語`,
+      ].join(" · ");
+      els.docStats.textContent = meta;
+      els.footMeta.textContent = meta;
 
-      els.result.classList.remove("hidden");
+      setupAnchors();
+      enableControls(true);
+      showPaper();
       setStatus("");
-      autoSelectInteresting();
+
+      const warnings = (result.messages || []).filter((m) => m.type !== "info");
+      if (warnings.length) {
+        setFooter(`読み込み完了（注意 ${warnings.length} 件）`);
+        console.info("[mammoth] messages:", result.messages);
+      } else {
+        setFooter("読み込み完了");
+      }
+
+      if (state.isFitWidth) computeFitWidthZoom();
+      applyZoom();
+
+      // 検索ボックスがあれば再評価
+      if (state.search.query) runSearch(state.search.query);
     } catch (err) {
       console.error(err);
-      const isZipErr =
-        /End of central directory|invalid signature|Corrupted zip|Can't find end of central directory/i.test(
-          err.message || ""
-        );
+      const msg = (err && err.message) || String(err);
+      const isZipErr = /End of central directory|Corrupted zip|invalid signature/i.test(
+        msg
+      );
       setStatus(
         isZipErr
-          ? "このファイルは ZIP として読み込めませんでした。.docx ファイルを選択してください。"
-          : "読み込みに失敗しました: " + (err.message || err),
+          ? "このファイルは .docx として読み込めませんでした。OOXML 形式の .docx を選んでください。"
+          : "読み込みに失敗しました: " + msg,
         true
       );
+      setFooter("エラー");
     }
+  }
+
+  function showPaper() {
+    els.welcome.classList.add("hidden");
+    els.paperWrap.classList.remove("hidden");
+    els.workspace.scrollTop = 0;
+  }
+
+  function enableControls(enabled) {
+    [
+      els.printBtn,
+      els.downloadHtmlBtn,
+      els.zoomInBtn,
+      els.zoomOutBtn,
+      els.fitWidthBtn,
+      els.searchInput,
+      els.searchPrevBtn,
+      els.searchNextBtn,
+    ].forEach((el) => (el.disabled = !enabled));
+  }
+
+  // ---------- ズーム ----------
+  function setupZoom() {
+    els.zoomInBtn.addEventListener("click", () => {
+      state.isFitWidth = false;
+      const next = ZOOM_STEPS.find((z) => z > state.zoom + 0.0001);
+      if (next) {
+        state.zoom = next;
+        applyZoom();
+      }
+    });
+    els.zoomOutBtn.addEventListener("click", () => {
+      state.isFitWidth = false;
+      const arr = [...ZOOM_STEPS].reverse();
+      const next = arr.find((z) => z < state.zoom - 0.0001);
+      if (next) {
+        state.zoom = next;
+        applyZoom();
+      }
+    });
+    els.fitWidthBtn.addEventListener("click", () => {
+      state.isFitWidth = true;
+      computeFitWidthZoom();
+      applyZoom();
+    });
+
+    // Ctrl + ホイールでズーム
+    els.workspace.addEventListener(
+      "wheel",
+      (e) => {
+        if (!e.ctrlKey) return;
+        if (els.paperWrap.classList.contains("hidden")) return;
+        e.preventDefault();
+        state.isFitWidth = false;
+        if (e.deltaY < 0) {
+          const next = ZOOM_STEPS.find((z) => z > state.zoom + 0.0001);
+          if (next) state.zoom = next;
+        } else {
+          const arr = [...ZOOM_STEPS].reverse();
+          const next = arr.find((z) => z < state.zoom - 0.0001);
+          if (next) state.zoom = next;
+        }
+        applyZoom();
+      },
+      { passive: false }
+    );
+
+    window.addEventListener("resize", () => {
+      if (state.isFitWidth) {
+        computeFitWidthZoom();
+        applyZoom();
+      }
+    });
+  }
+
+  function computeFitWidthZoom() {
+    // A4 幅 = 210mm。1mm ≒ 3.7795px (96dpi) → 210mm ≒ 793.7px
+    const A4_PX = 210 * 3.7795275591;
+    const ws = els.workspace.clientWidth - 32; // padding 余白
+    if (ws > 0) {
+      state.zoom = Math.max(0.4, Math.min(3, ws / A4_PX));
+    }
+  }
+
+  function applyZoom() {
+    els.paperScale.style.setProperty("--zoom", state.zoom.toFixed(3));
+    els.zoomValue.textContent = Math.round(state.zoom * 100) + "%";
+  }
+
+  // ---------- 検索 ----------
+  function setupSearch() {
+    let timer = null;
+    els.searchInput.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => runSearch(els.searchInput.value), 120);
+    });
+    els.searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        if (e.shiftKey) gotoHit(state.search.activeIndex - 1);
+        else gotoHit(state.search.activeIndex + 1);
+      } else if (e.key === "Escape") {
+        els.searchInput.value = "";
+        runSearch("");
+        els.searchInput.blur();
+      }
+    });
+    els.searchNextBtn.addEventListener("click", () =>
+      gotoHit(state.search.activeIndex + 1)
+    );
+    els.searchPrevBtn.addEventListener("click", () =>
+      gotoHit(state.search.activeIndex - 1)
+    );
+  }
+
+  function runSearch(query) {
+    clearHighlights();
+    state.search.query = query || "";
+    state.search.hits = [];
+    state.search.activeIndex = -1;
+
+    if (!query || query.length < 1) {
+      updateSearchCounter();
+      return;
+    }
+
+    highlightInElement(els.paper, query);
+    state.search.hits = Array.from(
+      els.paper.querySelectorAll("mark.search-hit")
+    );
+    if (state.search.hits.length) gotoHit(0);
+    updateSearchCounter();
+  }
+
+  function gotoHit(index) {
+    if (!state.search.hits.length) return;
+    const n = state.search.hits.length;
+    const i = ((index % n) + n) % n;
+    state.search.hits.forEach((m) => m.classList.remove("active"));
+    const target = state.search.hits[i];
+    target.classList.add("active");
+    state.search.activeIndex = i;
+    updateSearchCounter();
+
+    // ズームに合わせてスクロール位置を補正
+    const rect = target.getBoundingClientRect();
+    const wsRect = els.workspace.getBoundingClientRect();
+    const offset =
+      els.workspace.scrollTop +
+      (rect.top - wsRect.top) -
+      els.workspace.clientHeight / 2 +
+      rect.height / 2;
+    els.workspace.scrollTo({ top: offset, behavior: "smooth" });
+  }
+
+  function updateSearchCounter() {
+    const n = state.search.hits.length;
+    const i = state.search.activeIndex;
+    if (!state.search.query) {
+      els.searchCounter.textContent = "";
+    } else if (n === 0) {
+      els.searchCounter.textContent = "0 件";
+    } else {
+      els.searchCounter.textContent = `${i + 1} / ${n}`;
+    }
+  }
+
+  function clearHighlights() {
+    const marks = els.paper.querySelectorAll("mark.search-hit");
+    marks.forEach((m) => {
+      const parent = m.parentNode;
+      if (!parent) return;
+      while (m.firstChild) parent.insertBefore(m.firstChild, m);
+      parent.removeChild(m);
+      parent.normalize();
+    });
+  }
+
+  function highlightInElement(root, query) {
+    if (!query) return;
+    const lowerQ = query.toLowerCase();
+    const walker = document.createTreeWalker(
+      root,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          if (!node.nodeValue || !node.nodeValue.trim()) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          // <script>/<style>/既存の mark 内はスキップ
+          let p = node.parentNode;
+          while (p && p !== root) {
+            const tag = p.nodeName;
+            if (tag === "SCRIPT" || tag === "STYLE") {
+              return NodeFilter.FILTER_REJECT;
+            }
+            if (tag === "MARK" && p.classList.contains("search-hit")) {
+              return NodeFilter.FILTER_REJECT;
+            }
+            p = p.parentNode;
+          }
+          return node.nodeValue.toLowerCase().includes(lowerQ)
+            ? NodeFilter.FILTER_ACCEPT
+            : NodeFilter.FILTER_REJECT;
+        },
+      },
+      false
+    );
+
+    const targets = [];
+    let n = walker.nextNode();
+    while (n) {
+      targets.push(n);
+      n = walker.nextNode();
+    }
+
+    for (const textNode of targets) {
+      const text = textNode.nodeValue;
+      const lower = text.toLowerCase();
+      const frag = document.createDocumentFragment();
+      let i = 0;
+      while (i < text.length) {
+        const idx = lower.indexOf(lowerQ, i);
+        if (idx === -1) {
+          frag.appendChild(document.createTextNode(text.slice(i)));
+          break;
+        }
+        if (idx > i) {
+          frag.appendChild(document.createTextNode(text.slice(i, idx)));
+        }
+        const mark = document.createElement("mark");
+        mark.className = "search-hit";
+        mark.textContent = text.slice(idx, idx + lowerQ.length);
+        frag.appendChild(mark);
+        i = idx + lowerQ.length;
+      }
+      textNode.parentNode.replaceChild(frag, textNode);
+    }
+  }
+
+  // ---------- ショートカット ----------
+  function setupKeys() {
+    document.addEventListener("keydown", (e) => {
+      const cmd = e.ctrlKey || e.metaKey;
+      if (cmd && e.key.toLowerCase() === "o") {
+        e.preventDefault();
+        els.fileInput.click();
+      } else if (cmd && e.key.toLowerCase() === "p") {
+        if (els.paperWrap.classList.contains("hidden")) return;
+        e.preventDefault();
+        window.print();
+      } else if (cmd && e.key.toLowerCase() === "f") {
+        if (els.searchInput.disabled) return;
+        e.preventDefault();
+        els.searchInput.focus();
+        els.searchInput.select();
+      } else if (cmd && (e.key === "+" || e.key === "=")) {
+        if (els.zoomInBtn.disabled) return;
+        e.preventDefault();
+        els.zoomInBtn.click();
+      } else if (cmd && e.key === "-") {
+        if (els.zoomOutBtn.disabled) return;
+        e.preventDefault();
+        els.zoomOutBtn.click();
+      } else if (cmd && e.key === "0") {
+        if (els.zoomInBtn.disabled) return;
+        e.preventDefault();
+        state.isFitWidth = false;
+        state.zoom = 1;
+        applyZoom();
+      }
+    });
+  }
+
+  // ---------- ステータス & フッター ----------
+  function setupFooter() {
+    setFooter("準備完了");
   }
 
   function setStatus(msg, isError) {
@@ -182,364 +513,30 @@
     els.status.textContent = msg;
   }
 
-  function formatHeaderMeta(file, entries) {
-    const totalUncompressed = entries.reduce(
-      (sum, e) => sum + (e.uncompressedSize || 0),
-      0
-    );
-    return [
-      formatBytes(file.size) + " (圧縮)",
-      formatBytes(totalUncompressed) + " (展開)",
-      entries.length + " エントリ",
-    ].join(" · ");
+  function setFooter(msg) {
+    els.footStatus.textContent = msg;
   }
 
-  function collectEntries(zip) {
-    const entries = [];
-    zip.forEach((relativePath, entry) => {
-      entries.push({
-        path: entry.name,
-        dir: entry.dir,
-        uncompressedSize:
-          (entry._data && entry._data.uncompressedSize) || 0,
-        compressedSize:
-          (entry._data && entry._data.compressedSize) || 0,
-        date: entry.date,
-        entry,
-      });
+  // ---------- 補助 ----------
+  function setupAnchors() {
+    // mammoth が出力するリンクは新規タブで開く
+    els.paper.querySelectorAll("a[href]").forEach((a) => {
+      const href = a.getAttribute("href") || "";
+      if (/^https?:/i.test(href)) {
+        a.setAttribute("target", "_blank");
+        a.setAttribute("rel", "noopener noreferrer");
+      }
     });
-    entries.sort((a, b) => a.path.localeCompare(b.path));
-    return entries;
   }
 
-  // ---------- ツリー ----------
-  function buildTree(entries) {
-    els.tree.innerHTML = "";
-    const root = { name: "", children: new Map(), dir: true, path: "" };
-
-    for (const e of entries) {
-      const parts = e.path.split("/").filter(Boolean);
-      let node = root;
-      for (let i = 0; i < parts.length; i++) {
-        const part = parts[i];
-        const isLast = i === parts.length - 1;
-        if (!node.children.has(part)) {
-          node.children.set(part, {
-            name: part,
-            children: new Map(),
-            dir: !isLast || e.dir,
-            path: parts.slice(0, i + 1).join("/") + (!isLast || e.dir ? "/" : ""),
-            entry: isLast && !e.dir ? e : null,
-          });
-        }
-        node = node.children.get(part);
-        if (isLast && !e.dir) node.entry = e;
-      }
-    }
-
-    const frag = document.createDocumentFragment();
-    renderTreeChildren(root, frag, 0);
-    els.tree.appendChild(frag);
+  function computeStats(text) {
+    const chars = text.replace(/\s/g, "").length;
+    const words = (text.match(/[\p{L}\p{N}]+/gu) || []).length;
+    return { chars, words };
   }
 
-  function renderTreeChildren(node, parentEl, depth) {
-    const children = Array.from(node.children.values()).sort((a, b) => {
-      if (a.dir !== b.dir) return a.dir ? -1 : 1;
-      return a.name.localeCompare(b.name);
-    });
-    for (const child of children) {
-      const li = document.createElement("li");
-      const row = document.createElement("div");
-      row.className = "node";
-      row.dataset.path = child.path;
-
-      const twisty = document.createElement("span");
-      twisty.className = "twisty";
-      const icon = document.createElement("span");
-      icon.className = "icon";
-      const name = document.createElement("span");
-      name.className = "name";
-      name.textContent = child.name;
-      const size = document.createElement("span");
-      size.className = "size";
-
-      if (child.dir) {
-        twisty.textContent = "▾";
-        icon.textContent = "📁";
-      } else {
-        twisty.textContent = "";
-        icon.textContent = iconForFile(child.name);
-        if (child.entry) size.textContent = formatBytes(child.entry.uncompressedSize);
-      }
-
-      row.appendChild(twisty);
-      row.appendChild(icon);
-      row.appendChild(name);
-      row.appendChild(size);
-      li.appendChild(row);
-
-      if (child.dir) {
-        const ul = document.createElement("ul");
-        renderTreeChildren(child, ul, depth + 1);
-        li.appendChild(ul);
-        row.addEventListener("click", () => {
-          const collapsed = ul.style.display === "none";
-          ul.style.display = collapsed ? "" : "none";
-          twisty.textContent = collapsed ? "▾" : "▸";
-        });
-      } else {
-        row.addEventListener("click", () => {
-          selectFile(child.entry, row);
-        });
-      }
-
-      parentEl.appendChild(li);
-    }
-  }
-
-  function iconForFile(name) {
-    const ext = (name.match(/\.([^.]+)$/) || ["", ""])[1].toLowerCase();
-    if (["xml", "rels"].includes(ext)) return "🧾";
-    if (["png", "jpg", "jpeg", "gif", "bmp", "webp", "svg"].includes(ext))
-      return "🖼️";
-    if (["txt", "json", "html", "htm", "css", "js"].includes(ext)) return "📄";
-    if (["ttf", "otf", "woff", "woff2"].includes(ext)) return "🔤";
-    return "📦";
-  }
-
-  // ---------- プレビュー ----------
-  function resetPreview() {
-    els.preview.innerHTML =
-      '<p class="placeholder">左側のツリーからファイルを選ぶと、ここに内容を表示します。</p>';
-    els.previewName.textContent = "ファイルを選択してください";
-    els.downloadOneBtn.disabled = true;
-    els.downloadOneBtn.onclick = null;
-  }
-
-  async function selectFile(entryInfo, rowEl) {
-    if (!entryInfo) return;
-    document
-      .querySelectorAll(".tree .node.selected")
-      .forEach((n) => n.classList.remove("selected"));
-    if (rowEl) rowEl.classList.add("selected");
-    state.selectedPath = entryInfo.path;
-
-    els.previewName.textContent = entryInfo.path;
-    els.preview.innerHTML = '<p class="placeholder">読み込み中…</p>';
-
-    const ext = (entryInfo.path.match(/\.([^.]+)$/) || ["", ""])[1].toLowerCase();
-    try {
-      if (["png", "jpg", "jpeg", "gif", "bmp", "webp"].includes(ext)) {
-        const blob = await entryInfo.entry.async("blob");
-        const url = URL.createObjectURL(blob);
-        els.preview.innerHTML = "";
-        const img = document.createElement("img");
-        img.src = url;
-        img.alt = entryInfo.path;
-        img.onload = () => URL.revokeObjectURL(url);
-        els.preview.appendChild(img);
-      } else if (ext === "svg") {
-        const text = await entryInfo.entry.async("string");
-        els.preview.innerHTML = "";
-        const wrap = document.createElement("div");
-        wrap.innerHTML = text;
-        els.preview.appendChild(wrap);
-      } else {
-        let text = await entryInfo.entry.async("string");
-        if (ext === "xml" || ext === "rels") {
-          text = prettyPrintXml(text);
-        }
-        els.preview.innerHTML = "";
-        const pre = document.createElement("pre");
-        pre.textContent = text;
-        els.preview.appendChild(pre);
-      }
-
-      els.downloadOneBtn.disabled = false;
-      els.downloadOneBtn.onclick = async () => {
-        const blob = await entryInfo.entry.async("blob");
-        const baseName = entryInfo.path.split("/").pop() || "file";
-        triggerDownload(blob, baseName);
-      };
-    } catch (err) {
-      els.preview.innerHTML =
-        '<p class="placeholder">プレビューを表示できませんでした: ' +
-        escapeHtml(err.message || String(err)) +
-        "</p>";
-    }
-  }
-
-  function autoSelectInteresting() {
-    const preferred = [
-      "word/document.xml",
-      "ppt/presentation.xml",
-      "xl/workbook.xml",
-    ];
-    for (const p of preferred) {
-      const found = state.entries.find((e) => e.path === p);
-      if (found) {
-        const row = els.tree.querySelector(`.node[data-path="${cssEscape(p)}"]`);
-        selectFile(found, row);
-        return;
-      }
-    }
-  }
-
-  // ---------- 本文テキスト抽出 ----------
-  async function renderBodyText(zip) {
-    els.bodyText.textContent = "";
-    const docFile = zip.file("word/document.xml");
-    if (!docFile) {
-      els.bodyText.textContent =
-        "(word/document.xml が見つかりませんでした。docx ではない可能性があります。)";
-      return;
-    }
-    try {
-      const xml = await docFile.async("string");
-      els.bodyText.textContent = extractDocxBodyText(xml);
-    } catch (err) {
-      els.bodyText.textContent = "本文の抽出に失敗しました: " + err.message;
-    }
-  }
-
-  /** docx の document.xml から段落／改行を保ったプレーンテキストを抽出 */
-  function extractDocxBodyText(xml) {
-    let doc;
-    try {
-      doc = new DOMParser().parseFromString(xml, "application/xml");
-    } catch (e) {
-      return xml.replace(/<[^>]+>/g, "");
-    }
-    if (doc.getElementsByTagName("parsererror").length) {
-      return xml.replace(/<[^>]+>/g, "");
-    }
-
-    const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
-    const lines = [];
-
-    const paragraphs = doc.getElementsByTagNameNS(W, "p");
-    for (let i = 0; i < paragraphs.length; i++) {
-      const p = paragraphs[i];
-      let line = "";
-      const walker = document.createTreeWalker(p, NodeFilter.SHOW_ELEMENT, null);
-      let node = walker.currentNode;
-      while (node) {
-        if (node.namespaceURI === W) {
-          const ln = node.localName;
-          if (ln === "t") {
-            line += node.textContent;
-          } else if (ln === "tab") {
-            line += "\t";
-          } else if (ln === "br") {
-            line += "\n";
-          }
-        }
-        node = walker.nextNode();
-      }
-      lines.push(line);
-    }
-    return lines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-  }
-
-  // ---------- メタ情報 ----------
-  async function renderMeta(zip, file) {
-    els.metaTable.innerHTML = "";
-    addMetaRow("ファイル名", file.name);
-    addMetaRow("サイズ (圧縮)", formatBytes(file.size));
-    addMetaRow(
-      "サイズ (展開)",
-      formatBytes(state.entries.reduce((s, e) => s + (e.uncompressedSize || 0), 0))
-    );
-    addMetaRow("エントリ数", String(state.entries.length));
-    addMetaRow("最終更新日時 (アップロード)", new Date(file.lastModified).toLocaleString());
-
-    const corePath = "docProps/core.xml";
-    const appPath = "docProps/app.xml";
-    const coreFile = zip.file(corePath);
-    const appFile = zip.file(appPath);
-
-    if (coreFile) {
-      try {
-        const xml = await coreFile.async("string");
-        const doc = new DOMParser().parseFromString(xml, "application/xml");
-        const get = (ns, name) => {
-          const el = doc.getElementsByTagNameNS(ns, name)[0];
-          return el ? el.textContent : null;
-        };
-        const DC = "http://purl.org/dc/elements/1.1/";
-        const CP = "http://schemas.openxmlformats.org/package/2006/metadata/core-properties";
-        const DCTERMS = "http://purl.org/dc/terms/";
-        const map = [
-          ["タイトル", get(DC, "title")],
-          ["主題", get(DC, "subject")],
-          ["作成者", get(DC, "creator")],
-          ["最終更新者", get(CP, "lastModifiedBy")],
-          ["キーワード", get(CP, "keywords")],
-          ["説明", get(DC, "description")],
-          ["カテゴリ", get(CP, "category")],
-          ["改訂番号", get(CP, "revision")],
-          ["作成日時", get(DCTERMS, "created")],
-          ["更新日時", get(DCTERMS, "modified")],
-        ];
-        for (const [k, v] of map) {
-          if (v) addMetaRow(k, v);
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    if (appFile) {
-      try {
-        const xml = await appFile.async("string");
-        const doc = new DOMParser().parseFromString(xml, "application/xml");
-        const getAny = (name) => {
-          const els = doc.getElementsByTagName(name);
-          if (els.length) return els[0].textContent;
-          const elsLocal = Array.from(doc.getElementsByTagName("*")).find(
-            (e) => e.localName === name
-          );
-          return elsLocal ? elsLocal.textContent : null;
-        };
-        const fields = [
-          ["アプリケーション", "Application"],
-          ["バージョン", "AppVersion"],
-          ["会社", "Company"],
-          ["ページ数", "Pages"],
-          ["単語数", "Words"],
-          ["文字数", "Characters"],
-          ["段落数", "Paragraphs"],
-          ["行数", "Lines"],
-          ["編集時間 (分)", "TotalTime"],
-        ];
-        for (const [label, tag] of fields) {
-          const v = getAny(tag);
-          if (v) addMetaRow(label, v);
-        }
-      } catch (e) {
-        // ignore
-      }
-    }
-
-    if (!els.metaTable.children.length) {
-      addMetaRow("情報", "プロパティ情報は見つかりませんでした。");
-    }
-  }
-
-  function addMetaRow(key, value) {
-    const tr = document.createElement("tr");
-    const td1 = document.createElement("td");
-    const td2 = document.createElement("td");
-    td1.textContent = key;
-    td2.textContent = value;
-    tr.appendChild(td1);
-    tr.appendChild(td2);
-    els.metaTable.appendChild(tr);
-  }
-
-  // ---------- ユーティリティ ----------
   function formatBytes(bytes) {
-    if (!bytes && bytes !== 0) return "-";
+    if (bytes == null) return "-";
     const units = ["B", "KB", "MB", "GB"];
     let i = 0;
     let n = bytes;
@@ -550,11 +547,26 @@
     return (i === 0 ? n : n.toFixed(2)) + " " + units[i];
   }
 
-  function triggerDownload(blob, filename) {
+  function saveAsHtml() {
+    if (!state.html) return;
+    const title = (state.fileName || "document").replace(/\.[^.]+$/, "");
+    const css = `
+      body { font-family: "Yu Mincho", "Hiragino Mincho ProN", "Times New Roman", serif; max-width: 800px; margin: 40px auto; padding: 0 20px; line-height: 1.7; color: #1f1f1f; }
+      h1,h2,h3,h4 { font-family: "Yu Gothic UI", "Hiragino Sans", sans-serif; color: #1f3f6b; }
+      img { max-width: 100%; height: auto; }
+      table { border-collapse: collapse; }
+      th, td { border: 1px solid #b8b8b8; padding: 5px 8px; }
+      th { background: #f0f4fa; }
+      blockquote { border-left: 3px solid #c8d3e6; margin: 0.8em 0; padding: 0.2em 0.9em; color: #444; background: #f6f8fc; }
+    `;
+    const html = `<!doctype html><html lang="ja"><head><meta charset="UTF-8"><title>${escapeHtml(
+      title
+    )}</title><style>${css}</style></head><body>${state.html}</body></html>`;
+    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = filename;
+    a.download = title + ".html";
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -562,31 +574,8 @@
   }
 
   function escapeHtml(s) {
-    return s.replace(/[&<>"']/g, (c) =>
+    return String(s).replace(/[&<>"']/g, (c) =>
       ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
     );
-  }
-
-  function cssEscape(s) {
-    if (window.CSS && CSS.escape) return CSS.escape(s);
-    return s.replace(/(["\\])/g, "\\$1");
-  }
-
-  function prettyPrintXml(xml) {
-    let formatted = "";
-    const reg = /(>)(<)(\/*)/g;
-    const trimmed = xml.replace(reg, "$1\n$2$3").trim();
-    let pad = 0;
-    trimmed.split("\n").forEach((node) => {
-      let indent = 0;
-      if (/^<\/\w/.test(node)) {
-        if (pad > 0) pad -= 1;
-      } else if (/^<\w[^>]*[^/]>$/.test(node) && !/<\/\w/.test(node)) {
-        indent = 1;
-      }
-      formatted += "  ".repeat(pad) + node + "\n";
-      pad += indent;
-    });
-    return formatted.trim();
   }
 })();
