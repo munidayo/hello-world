@@ -23,11 +23,8 @@
     footMeta: document.getElementById("footMeta"),
 
     openBtn: document.getElementById("openBtn"),
-    printBtn: document.getElementById("printBtn"),
-    downloadHtmlBtn: document.getElementById("downloadHtmlBtn"),
     zoomInBtn: document.getElementById("zoomInBtn"),
     zoomOutBtn: document.getElementById("zoomOutBtn"),
-    fitWidthBtn: document.getElementById("fitWidthBtn"),
     zoomValue: document.getElementById("zoomValue"),
     darkToggle: document.getElementById("darkToggle"),
 
@@ -44,7 +41,6 @@
     html: "",
     plainText: "",
     zoom: 1, // 1 = 100%
-    isFitWidth: false,
     search: {
       query: "",
       hits: [],
@@ -97,9 +93,6 @@
       if (file) handleFile(file);
       els.fileInput.value = "";
     });
-
-    els.printBtn.addEventListener("click", () => window.print());
-    els.downloadHtmlBtn.addEventListener("click", saveAsHtml);
   }
 
   // ---------- ドラッグ＆ドロップ（ページ全体） ----------
@@ -203,7 +196,6 @@
         setFooter("読み込み完了");
       }
 
-      if (state.isFitWidth) computeFitWidthZoom();
       applyZoom();
 
       // 検索ボックスがあれば再評価
@@ -232,11 +224,8 @@
 
   function enableControls(enabled) {
     [
-      els.printBtn,
-      els.downloadHtmlBtn,
       els.zoomInBtn,
       els.zoomOutBtn,
-      els.fitWidthBtn,
       els.searchInput,
       els.searchPrevBtn,
       els.searchNextBtn,
@@ -245,28 +234,8 @@
 
   // ---------- ズーム ----------
   function setupZoom() {
-    els.zoomInBtn.addEventListener("click", () => {
-      state.isFitWidth = false;
-      const next = ZOOM_STEPS.find((z) => z > state.zoom + 0.0001);
-      if (next) {
-        state.zoom = next;
-        applyZoom();
-      }
-    });
-    els.zoomOutBtn.addEventListener("click", () => {
-      state.isFitWidth = false;
-      const arr = [...ZOOM_STEPS].reverse();
-      const next = arr.find((z) => z < state.zoom - 0.0001);
-      if (next) {
-        state.zoom = next;
-        applyZoom();
-      }
-    });
-    els.fitWidthBtn.addEventListener("click", () => {
-      state.isFitWidth = true;
-      computeFitWidthZoom();
-      applyZoom();
-    });
+    els.zoomInBtn.addEventListener("click", () => zoomStep(+1));
+    els.zoomOutBtn.addEventListener("click", () => zoomStep(-1));
 
     // Ctrl + ホイールでズーム
     els.workspace.addEventListener(
@@ -275,35 +244,22 @@
         if (!e.ctrlKey) return;
         if (els.paperWrap.classList.contains("hidden")) return;
         e.preventDefault();
-        state.isFitWidth = false;
-        if (e.deltaY < 0) {
-          const next = ZOOM_STEPS.find((z) => z > state.zoom + 0.0001);
-          if (next) state.zoom = next;
-        } else {
-          const arr = [...ZOOM_STEPS].reverse();
-          const next = arr.find((z) => z < state.zoom - 0.0001);
-          if (next) state.zoom = next;
-        }
-        applyZoom();
+        zoomStep(e.deltaY < 0 ? +1 : -1);
       },
       { passive: false }
     );
-
-    window.addEventListener("resize", () => {
-      if (state.isFitWidth) {
-        computeFitWidthZoom();
-        applyZoom();
-      }
-    });
   }
 
-  function computeFitWidthZoom() {
-    // A4 幅 = 210mm。1mm ≒ 3.7795px (96dpi) → 210mm ≒ 793.7px
-    const A4_PX = 210 * 3.7795275591;
-    const ws = els.workspace.clientWidth - 32; // padding 余白
-    if (ws > 0) {
-      state.zoom = Math.max(0.4, Math.min(3, ws / A4_PX));
+  function zoomStep(direction) {
+    if (direction > 0) {
+      const next = ZOOM_STEPS.find((z) => z > state.zoom + 0.0001);
+      if (next) state.zoom = next;
+    } else {
+      const arr = [...ZOOM_STEPS].reverse();
+      const next = arr.find((z) => z < state.zoom - 0.0001);
+      if (next) state.zoom = next;
     }
+    applyZoom();
   }
 
   function applyZoom() {
@@ -469,10 +425,6 @@
       if (cmd && e.key.toLowerCase() === "o") {
         e.preventDefault();
         els.fileInput.click();
-      } else if (cmd && e.key.toLowerCase() === "p") {
-        if (els.paperWrap.classList.contains("hidden")) return;
-        e.preventDefault();
-        window.print();
       } else if (cmd && e.key.toLowerCase() === "f") {
         if (els.searchInput.disabled) return;
         e.preventDefault();
@@ -481,15 +433,14 @@
       } else if (cmd && (e.key === "+" || e.key === "=")) {
         if (els.zoomInBtn.disabled) return;
         e.preventDefault();
-        els.zoomInBtn.click();
+        zoomStep(+1);
       } else if (cmd && e.key === "-") {
         if (els.zoomOutBtn.disabled) return;
         e.preventDefault();
-        els.zoomOutBtn.click();
+        zoomStep(-1);
       } else if (cmd && e.key === "0") {
         if (els.zoomInBtn.disabled) return;
         e.preventDefault();
-        state.isFitWidth = false;
         state.zoom = 1;
         applyZoom();
       }
@@ -547,35 +498,4 @@
     return (i === 0 ? n : n.toFixed(2)) + " " + units[i];
   }
 
-  function saveAsHtml() {
-    if (!state.html) return;
-    const title = (state.fileName || "document").replace(/\.[^.]+$/, "");
-    const css = `
-      body { font-family: "Yu Mincho", "Hiragino Mincho ProN", "Times New Roman", serif; max-width: 800px; margin: 40px auto; padding: 0 20px; line-height: 1.7; color: #1f1f1f; }
-      h1,h2,h3,h4 { font-family: "Yu Gothic UI", "Hiragino Sans", sans-serif; color: #1f3f6b; }
-      img { max-width: 100%; height: auto; }
-      table { border-collapse: collapse; }
-      th, td { border: 1px solid #b8b8b8; padding: 5px 8px; }
-      th { background: #f0f4fa; }
-      blockquote { border-left: 3px solid #c8d3e6; margin: 0.8em 0; padding: 0.2em 0.9em; color: #444; background: #f6f8fc; }
-    `;
-    const html = `<!doctype html><html lang="ja"><head><meta charset="UTF-8"><title>${escapeHtml(
-      title
-    )}</title><style>${css}</style></head><body>${state.html}</body></html>`;
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = title + ".html";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 0);
-  }
-
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
-    );
-  }
 })();

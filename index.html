@@ -36,34 +36,14 @@
     </header>
 
     <nav class="ribbon" aria-label="ツールバー">
-      <div class="ribbon-group">
-        <button class="rbtn primary" id="openBtn" type="button" title="docx を開く (Ctrl+O)">
-          <span class="ico">📂</span>開く
-        </button>
-        <button class="rbtn" id="printBtn" type="button" title="印刷 (Ctrl+P)" disabled>
-          <span class="ico">🖨️</span>印刷
-        </button>
-        <button class="rbtn" id="downloadHtmlBtn" type="button" title="HTML として保存" disabled>
-          <span class="ico">💾</span>HTML 保存
-        </button>
-      </div>
-
-      <div class="ribbon-sep" aria-hidden="true"></div>
+      <button class="rbtn primary" id="openBtn" type="button" title="docx を開く (Ctrl+O)">
+        <span class="ico">📂</span>開く
+      </button>
 
       <div class="ribbon-group zoom-group">
-        <button class="rbtn icon-only" id="zoomOutBtn" type="button" title="ズームアウト" disabled>−</button>
+        <button class="rbtn icon-only" id="zoomOutBtn" type="button" title="ズームアウト (Ctrl+−)" disabled>−</button>
         <span class="zoom-value" id="zoomValue">100%</span>
-        <button class="rbtn icon-only" id="zoomInBtn" type="button" title="ズームイン" disabled>＋</button>
-        <button class="rbtn small" id="fitWidthBtn" type="button" title="幅に合わせる" disabled>幅に合わせる</button>
-      </div>
-
-      <div class="ribbon-sep" aria-hidden="true"></div>
-
-      <div class="ribbon-group">
-        <label class="rbtn toggle" title="ダークモード">
-          <input type="checkbox" id="darkToggle" />
-          <span class="ico">🌙</span>ダーク
-        </label>
+        <button class="rbtn icon-only" id="zoomInBtn" type="button" title="ズームイン (Ctrl+＋)" disabled>＋</button>
       </div>
 
       <div class="ribbon-spacer"></div>
@@ -73,13 +53,18 @@
           type="search"
           id="searchInput"
           class="search"
-          placeholder="本文を検索…"
+          placeholder="本文を検索… (Ctrl+F)"
           aria-label="本文を検索"
           disabled
         />
         <span class="search-counter muted small" id="searchCounter"></span>
-        <button class="rbtn icon-only" id="searchPrevBtn" type="button" title="前へ" disabled>◀</button>
-        <button class="rbtn icon-only" id="searchNextBtn" type="button" title="次へ" disabled>▶</button>
+        <button class="rbtn icon-only" id="searchPrevBtn" type="button" title="前へ (Shift+Enter)" disabled>◀</button>
+        <button class="rbtn icon-only" id="searchNextBtn" type="button" title="次へ (Enter)" disabled>▶</button>
+
+        <label class="rbtn toggle" title="ダークモード">
+          <input type="checkbox" id="darkToggle" />
+          <span class="ico">🌙</span>
+        </label>
       </div>
     </nav>
 
@@ -114,8 +99,9 @@
             <p class="muted small">またはクリックしてファイルを選択</p>
           </div>
           <p class="muted small tip">
-            ヒント: 開いたあとは <kbd>Ctrl</kbd>＋<kbd>F</kbd>で検索、
-            <kbd>Ctrl</kbd>＋<kbd>P</kbd>で印刷できます。
+            <kbd>Ctrl</kbd>＋<kbd>O</kbd> で開く ／
+            <kbd>Ctrl</kbd>＋<kbd>F</kbd> で検索 ／
+            <kbd>Ctrl</kbd>＋ホイール でズーム
           </p>
         </div>
       </section>

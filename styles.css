@@ -112,7 +112,7 @@ body {
 .ribbon {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   padding: 6px 10px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
@@ -126,18 +126,11 @@ body {
 }
 
 .ribbon-group.right {
-  margin-left: auto;
+  gap: 6px;
 }
 
 .ribbon-spacer {
   flex: 1;
-}
-
-.ribbon-sep {
-  width: 1px;
-  align-self: stretch;
-  background: var(--border);
-  margin: 4px 6px;
 }
 
 .rbtn {
@@ -235,7 +228,7 @@ body {
   padding: 5px 9px;
   font-size: 13px;
   color: var(--text);
-  width: 220px;
+  width: 200px;
   font-family: inherit;
   outline: none;
   transition: border-color 0.12s, box-shadow 0.12s;
