@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>docx 解凍アプリ</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ctext y='20' font-size='20'%3E%F0%9F%93%84%3C/text%3E%3C/svg%3E"
+    />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand">
+        <span class="logo" aria-hidden="true">📄</span>
+        <div>
+          <h1>docx 解凍アプリ</h1>
+          <p class="subtitle">
+            .docx は ZIP 形式のアーカイブです。中身を覗いてみましょう。
+          </p>
+        </div>
+      </div>
+    </header>
+
+    <main class="container">
+      <section
+        id="dropzone"
+        class="dropzone"
+        aria-label=".docx ファイルをドロップ"
+      >
+        <input
+          type="file"
+          id="fileInput"
+          accept=".docx,.docm,.dotx,.dotm,.zip,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          hidden
+        />
+        <div class="dropzone-inner">
+          <div class="dropzone-icon" aria-hidden="true">📦</div>
+          <p class="dropzone-title">
+            ここに <strong>.docx</strong> ファイルをドラッグ＆ドロップ
+          </p>
+          <p class="dropzone-or">または</p>
+          <button id="pickBtn" class="btn primary" type="button">
+            ファイルを選択
+          </button>
+          <p class="dropzone-hint">
+            ファイルはサーバーに送信されません。すべてブラウザ上で処理されます。
+          </p>
+        </div>
+      </section>
+
+      <section id="status" class="status hidden" role="status" aria-live="polite"></section>
+
+      <section id="result" class="result hidden">
+        <div class="result-header">
+          <div class="result-meta">
+            <h2 id="fileName">document.docx</h2>
+            <p id="fileMeta" class="muted"></p>
+          </div>
+          <div class="result-actions">
+            <button id="copyTextBtn" class="btn" type="button" title="本文テキストをコピー">
+              本文をコピー
+            </button>
+            <button id="downloadAllBtn" class="btn" type="button" title="全ファイルを ZIP として保存">
+              全部ZIPで保存
+            </button>
+            <button id="resetBtn" class="btn ghost" type="button" title="別のファイルを開く">
+              別のファイル
+            </button>
+          </div>
+        </div>
+
+        <div class="tabs" role="tablist">
+          <button class="tab active" data-tab="files" role="tab" aria-selected="true">
+            📁 ファイル一覧
+          </button>
+          <button class="tab" data-tab="text" role="tab" aria-selected="false">
+            📝 本文テキスト
+          </button>
+          <button class="tab" data-tab="meta" role="tab" aria-selected="false">
+            ℹ️ プロパティ
+          </button>
+        </div>
+
+        <div class="tab-panels">
+          <section id="panel-files" class="tab-panel active" role="tabpanel">
+            <div class="split">
+              <aside class="tree-pane">
+                <ul id="tree" class="tree" role="tree"></ul>
+              </aside>
+              <article class="preview-pane">
+                <header class="preview-header">
+                  <h3 id="previewName">ファイルを選択してください</h3>
+                  <div class="preview-actions">
+                    <button id="downloadOneBtn" class="btn small" type="button" disabled>
+                      ダウンロード
+                    </button>
+                  </div>
+                </header>
+                <div id="preview" class="preview">
+                  <p class="placeholder">
+                    左側のツリーからファイルを選ぶと、ここに内容を表示します。
+                  </p>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section id="panel-text" class="tab-panel" role="tabpanel" hidden>
+            <pre id="bodyText" class="body-text"></pre>
+          </section>
+
+          <section id="panel-meta" class="tab-panel" role="tabpanel" hidden>
+            <table id="metaTable" class="meta-table">
+              <tbody></tbody>
+            </table>
+          </section>
+        </div>
+      </section>
+
+      <section class="about">
+        <details>
+          <summary>このアプリについて</summary>
+          <div class="about-body">
+            <p>
+              Microsoft Word の <code>.docx</code> ファイルは、実は
+              <strong>OOXML（Office Open XML）</strong> という規格に基づく
+              <strong>ZIP アーカイブ</strong> です。
+              中には <code>word/document.xml</code> のような XML や、画像・フォント・スタイル定義などが詰まっています。
+            </p>
+            <p>
+              このアプリは <a href="https://stuk.github.io/jszip/" target="_blank" rel="noopener">JSZip</a>
+              を使って、アップロードされた docx をブラウザ上だけで解凍し、中身を可視化します。
+              アップロードされたファイルがネットワークに送信されることはありません。
+            </p>
+          </div>
+        </details>
+      </section>
+    </main>
+
+    <footer class="app-footer">
+      <p>
+        Made with ❤️ — すべての処理はあなたのブラウザ内で完結します。
+      </p>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
