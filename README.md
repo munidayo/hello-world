@@ -37,17 +37,20 @@
 
 ビルド不要・依存物のインストール不要です。
 
-### 1. そのまま開く（お試し）
+### 🚀 最短ルート（おすすめ）
 
-```
-open index.html      # macOS
-xdg-open index.html  # Linux
-start index.html     # Windows
-```
+リポジトリに付属の **起動スクリプト** を実行するだけ。サーバが立ち上がり、ブラウザが自動で `http://localhost:8000/` を開きます。
 
-> PWA インストールやファイルハンドラ機能を使うときは **`http://` 経由でアクセス** する必要があります（次項参照）。
+| OS | 操作 |
+| --- | --- |
+| **macOS / Linux** | ターミナルで `./start.sh`（または `bash start.sh`） |
+| **Windows** | エクスプローラで **`start.bat` をダブルクリック** |
 
-### 2. ローカルサーバで配信して PC にインストール（推奨）
+スクリプトは Python3 → Python → `npx serve` → `php -S` の順に使えるものを自動検出します。
+
+> ポートを変えたいときは `PORT=9000 ./start.sh` のように指定してください。
+
+### 手動で起動する場合
 
 ```bash
 # Python3 がある環境
@@ -58,6 +61,18 @@ npx serve .
 ```
 
 そして `http://localhost:8000/` を開きます。
+
+### お試しだけしたい（インストールしない）
+
+`index.html` を直接ブラウザで開くだけでも基本機能は動きます。
+
+```
+open index.html      # macOS
+xdg-open index.html  # Linux
+start index.html     # Windows
+```
+
+> ただし PWA インストールやファイルハンドラ機能は `http://` 経由でないと使えません。
 
 #### Chrome / Edge / Brave / Arc などの Chromium 系ブラウザ
 
@@ -84,6 +99,7 @@ Chromium 系では PWA インストール後、`.docx` ファイルを右クリ�
 | `manifest.webmanifest` | PWA 設定（インストール、ファイルハンドラ） |
 | `icon.svg` | アプリアイコン |
 | `icon-maskable.svg` | OS のアダプティブアイコン用（マスク対応） |
+| `start.sh` / `start.bat` | サーバ起動 + ブラウザ自動オープンのスクリプト |
 
 ## 依存ライブラリ
 
