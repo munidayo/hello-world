@@ -1,4 +1,5 @@
-import { ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, CSSProperties } from "react";
 
 type Civilization = "fire" | "nature" | "water" | "light" | "darkness" | "rainbow";
 
@@ -15,8 +16,18 @@ type CardState = {
   foil: boolean;
 };
 
+type GenerateResponse = {
+  card: Omit<CardState, "imageFit" | "foil"> & {
+    artPrompt: string;
+  };
+  generatedImage: string;
+};
+
 const CARD_WIDTH = 744;
 const CARD_HEIGHT = 1040;
+
+const DEFAULT_STYLE_PROMPT =
+  "全面イラスト寄り。近年の豪華カード風に、枠飾りは過剰な金属装飾、宝石、文明アイコン、ホログラム線、立体的な角飾りを多層にする。説明欄は半透明で、イラストが背景まで回り込む。公式カードの完全コピーではなく、非公式のオリジナルTCGカードとして高密度に。";
 
 const CIVILIZATIONS: Record<
   Civilization,
@@ -75,8 +86,13 @@ const initialCard: CardState = {
 function App() {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
+  const imageFileRef = useRef<File | null>(null);
   const [card, setCard] = useState<CardState>(initialCard);
   const [imageName, setImageName] = useState("サンプル背景");
+  const [stylePrompt, setStylePrompt] = useState(DEFAULT_STYLE_PROMPT);
+  const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [aiStatus, setAiStatus] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const activeCivilization = CIVILIZATIONS[card.civilization];
   const downloadName = useMemo(
@@ -104,8 +120,10 @@ function App() {
 
     nextImage.onload = () => {
       URL.revokeObjectURL(objectUrl);
+      imageFileRef.current = file;
       imageRef.current = nextImage;
       setImageName(file.name);
+      setGeneratedImage(null);
       drawCard(canvasRef.current, nextImage, card);
     };
     nextImage.src = objectUrl;
@@ -122,6 +140,62 @@ function App() {
     link.download = downloadName;
     link.href = canvas.toDataURL("image/png");
     link.click();
+  };
+
+  const handleGeneratedDownload = () => {
+    if (!generatedImage) {
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.download = `${downloadName.replace(/\.png$/i, "")}-ai.png`;
+    link.href = generatedImage;
+    link.click();
+  };
+
+  const handleAiGenerate = async () => {
+    if (!imageFileRef.current) {
+      setAiStatus("先に写真を選んでください。");
+      return;
+    }
+
+    setIsGenerating(true);
+    setAiStatus("写真を読み取り、カード設定と豪華カード画像を生成中...");
+
+    try {
+      const formData = new FormData();
+      formData.append("image", imageFileRef.current);
+      formData.append("promptGuide", stylePrompt);
+
+      const response = await fetch("/api/generate-card", {
+        method: "POST",
+        body: formData,
+      });
+      const payload = (await response.json()) as Partial<GenerateResponse> & { error?: string };
+
+      if (!response.ok || payload.error || !payload.card) {
+        throw new Error(payload.error ?? "AI生成に失敗しました。");
+      }
+
+      const generatedCard = payload.card;
+      setCard((current) => ({
+        ...current,
+        title: generatedCard.title,
+        creatureType: generatedCard.creatureType,
+        cost: generatedCard.cost,
+        power: generatedCard.power,
+        civilization: generatedCard.civilization,
+        rarity: generatedCard.rarity,
+        abilityText: generatedCard.abilityText,
+        flavorText: generatedCard.flavorText,
+      }));
+      setGeneratedImage(payload.generatedImage || null);
+      setAiStatus("AI生成が完了しました。下の生成画像と編集可能なカード情報を確認できます。");
+    } catch (error) {
+      setAiStatus(error instanceof Error ? error.message : "AI生成に失敗しました。");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   return (
@@ -146,6 +220,27 @@ function App() {
             <strong>{imageName}</strong>
             <input accept="image/*" type="file" onChange={handleImageChange} />
           </label>
+
+          <section className="ai-card" aria-label="AI生成">
+            <div>
+              <span>AIでまるごとカード化</span>
+              <p>
+                写真からカード名・文明・能力・フレーバーを生成し、より豪華な全面イラスト風カード画像も作ります。
+              </p>
+            </div>
+            <label>
+              追加演出プロンプト
+              <textarea
+                rows={5}
+                value={stylePrompt}
+                onChange={(event) => setStylePrompt(event.target.value)}
+              />
+            </label>
+            <button className="secondary-action" disabled={isGenerating} type="button" onClick={handleAiGenerate}>
+              {isGenerating ? "生成中..." : "AI生成する"}
+            </button>
+            {aiStatus ? <p className="ai-status">{aiStatus}</p> : null}
+          </section>
 
           <div className="field-grid">
             <label>
@@ -247,13 +342,33 @@ function App() {
           </div>
         </form>
 
-        <div className="preview-wrap" style={{ "--accent": activeCivilization.colors[0] } as React.CSSProperties}>
-          <canvas
-            ref={canvasRef}
-            aria-label="生成されたカードのプレビュー"
-            height={CARD_HEIGHT}
-            width={CARD_WIDTH}
-          />
+        <div className="preview-column">
+          {generatedImage ? (
+            <section className="generated-preview">
+              <div className="preview-heading">
+                <div>
+                  <span>AI生成カード</span>
+                  <p>画像生成で作った豪華版です。文字の正確さは下のCanvas版で補完できます。</p>
+                </div>
+                <button className="secondary-action compact" type="button" onClick={handleGeneratedDownload}>
+                  AI画像を保存
+                </button>
+              </div>
+              <img alt="AIで生成したカード" src={generatedImage} />
+            </section>
+          ) : null}
+
+          <section
+            className="preview-wrap"
+            style={{ "--accent": activeCivilization.colors[0] } as CSSProperties}
+          >
+            <canvas
+              ref={canvasRef}
+              aria-label="生成されたカードのプレビュー"
+              height={CARD_HEIGHT}
+              width={CARD_WIDTH}
+            />
+          </section>
         </div>
       </section>
     </main>
@@ -401,7 +516,106 @@ function drawChrome(
       context.stroke();
     }
   }
+
+  drawOrnateFrame(context, start, middle, end);
   context.restore();
+}
+
+function drawOrnateFrame(
+  context: CanvasRenderingContext2D,
+  start: string,
+  middle: string,
+  end: string,
+) {
+  const ornamentGradient = context.createLinearGradient(34, 34, 710, 1006);
+  ornamentGradient.addColorStop(0, "rgba(255,255,255,0.88)");
+  ornamentGradient.addColorStop(0.2, start);
+  ornamentGradient.addColorStop(0.5, middle);
+  ornamentGradient.addColorStop(0.8, end);
+  ornamentGradient.addColorStop(1, "rgba(255,255,255,0.72)");
+
+  context.save();
+  context.strokeStyle = ornamentGradient;
+  context.lineWidth = 7;
+  roundedRect(context, 64, 54, CARD_WIDTH - 128, CARD_HEIGHT - 100, 34);
+  context.stroke();
+
+  context.lineWidth = 3;
+  context.strokeStyle = "rgba(255,255,255,0.34)";
+  roundedRect(context, 84, 78, CARD_WIDTH - 168, CARD_HEIGHT - 148, 24);
+  context.stroke();
+
+  for (let i = 0; i < 4; i += 1) {
+    const left = i % 2 === 0;
+    const top = i < 2;
+    const x = left ? 74 : CARD_WIDTH - 74;
+    const y = top ? 84 : CARD_HEIGHT - 84;
+    drawCornerOrnament(context, x, y, left ? 1 : -1, top ? 1 : -1, ornamentGradient);
+  }
+
+  for (let i = 0; i < 9; i += 1) {
+    const y = 170 + i * 82;
+    drawSideGem(context, 49, y, start, i);
+    drawSideGem(context, CARD_WIDTH - 49, y, end, i + 3);
+  }
+  context.restore();
+}
+
+function drawCornerOrnament(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  scaleX: number,
+  scaleY: number,
+  stroke: CanvasGradient,
+) {
+  context.save();
+  context.translate(x, y);
+  context.scale(scaleX, scaleY);
+  context.strokeStyle = stroke;
+  context.fillStyle = "rgba(10, 8, 14, 0.62)";
+  context.lineWidth = 5;
+
+  context.beginPath();
+  context.moveTo(0, 0);
+  context.bezierCurveTo(42, 8, 62, 28, 68, 72);
+  context.bezierCurveTo(38, 54, 26, 40, 0, 0);
+  context.closePath();
+  context.fill();
+  context.stroke();
+
+  context.beginPath();
+  context.moveTo(16, 12);
+  context.bezierCurveTo(54, 20, 90, 10, 116, -16);
+  context.stroke();
+
+  context.beginPath();
+  context.moveTo(12, 18);
+  context.bezierCurveTo(20, 58, 10, 96, -18, 118);
+  context.stroke();
+  context.restore();
+}
+
+function drawSideGem(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  color: string,
+  index: number,
+) {
+  const radius = index % 3 === 0 ? 9 : 6;
+  const gem = context.createRadialGradient(x - 3, y - 4, 2, x, y, radius + 5);
+  gem.addColorStop(0, "#ffffff");
+  gem.addColorStop(0.35, color);
+  gem.addColorStop(1, "#08070a");
+
+  context.beginPath();
+  context.arc(x, y, radius, 0, Math.PI * 2);
+  context.fillStyle = gem;
+  context.fill();
+  context.lineWidth = 2;
+  context.strokeStyle = "rgba(255,255,255,0.58)";
+  context.stroke();
 }
 
 function drawHeader(context: CanvasRenderingContext2D, card: CardState, titleColor: string) {
@@ -447,24 +661,28 @@ function drawHeader(context: CanvasRenderingContext2D, card: CardState, titleCol
 
 function drawTextBox(context: CanvasRenderingContext2D, card: CardState) {
   context.save();
-  roundedRect(context, 92, 660, 560, 254, 18);
-  context.fillStyle = "rgba(255, 248, 220, 0.9)";
+  roundedRect(context, 82, 642, 580, 276, 18);
+  context.fillStyle = "rgba(255, 248, 220, 0.78)";
   context.fill();
-  context.lineWidth = 5;
-  context.strokeStyle = "rgba(62, 31, 10, 0.86)";
+  context.lineWidth = 4;
+  context.strokeStyle = "rgba(255,255,255,0.46)";
+  context.stroke();
+  context.lineWidth = 2;
+  context.strokeStyle = "rgba(62, 31, 10, 0.72)";
+  roundedRect(context, 92, 652, 560, 256, 12);
   context.stroke();
 
   context.font = "700 24px system-ui, sans-serif";
   context.fillStyle = "#3a1d0b";
-  context.fillText(card.creatureType, 116, 700);
+  context.fillText(card.creatureType, 116, 686);
 
   context.font = "23px system-ui, sans-serif";
   context.fillStyle = "#1f2937";
-  wrapText(context, card.abilityText, 116, 738, 512, 33, 5);
+  wrapText(context, card.abilityText, 116, 725, 512, 32, 5);
 
   context.font = "italic 21px Georgia, serif";
   context.fillStyle = "#6b3f18";
-  wrapText(context, card.flavorText, 116, 888, 512, 28, 2);
+  wrapText(context, card.flavorText, 116, 878, 512, 27, 2);
   context.restore();
 }
 

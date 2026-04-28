@@ -96,6 +96,30 @@ button {
     inset 0 0.12rem 0 rgba(255, 255, 255, 0.55);
 }
 
+.secondary-action {
+  min-height: 2.9rem;
+  padding: 0.75rem 1rem;
+  color: #fff6d8;
+  font-weight: 900;
+  border: 1px solid rgba(255, 229, 160, 0.34);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04)),
+    rgba(8, 7, 14, 0.7);
+  box-shadow: inset 0 0.08rem 0 rgba(255, 255, 255, 0.26);
+}
+
+.secondary-action:disabled {
+  cursor: wait;
+  opacity: 0.62;
+}
+
+.secondary-action.compact {
+  min-height: 2.4rem;
+  padding: 0.55rem 0.9rem;
+  white-space: nowrap;
+}
+
 .workspace {
   display: grid;
   grid-template-columns: minmax(18rem, 25rem) minmax(0, 1fr);
@@ -106,7 +130,8 @@ button {
 }
 
 .control-panel,
-.preview-wrap {
+.preview-wrap,
+.generated-preview {
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 1.5rem;
   background: rgba(255, 255, 255, 0.08);
@@ -149,6 +174,39 @@ button {
 
 .upload-card input {
   width: 100%;
+}
+
+.ai-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 229, 160, 0.22);
+  border-radius: 1.15rem;
+  background:
+    radial-gradient(circle at top left, rgba(255, 180, 62, 0.18), transparent 12rem),
+    linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
+}
+
+.ai-card span,
+.preview-heading span {
+  color: #ffe8a7;
+  font-size: 0.9rem;
+  font-weight: 950;
+}
+
+.ai-card p,
+.preview-heading p {
+  margin: 0.35rem 0 0;
+  color: rgba(248, 240, 220, 0.66);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+
+.ai-status {
+  margin: 0;
+  color: rgba(255, 244, 210, 0.78);
+  font-size: 0.84rem;
+  line-height: 1.6;
 }
 
 .field-grid {
@@ -216,6 +274,36 @@ button {
   accent-color: #ffd166;
 }
 
+.preview-column {
+  display: grid;
+  gap: 1.5rem;
+  min-width: 0;
+}
+
+.generated-preview {
+  min-width: 0;
+  padding: clamp(1rem, 2.4vw, 1.7rem);
+}
+
+.preview-heading {
+  display: flex;
+  gap: 1rem;
+  align-items: start;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+}
+
+.generated-preview img {
+  display: block;
+  width: min(100%, 520px);
+  height: auto;
+  margin: 0 auto;
+  border-radius: 1.4rem;
+  box-shadow:
+    0 2rem 5rem rgba(0, 0, 0, 0.48),
+    0 0 4rem rgba(255, 214, 102, 0.18);
+}
+
 .preview-wrap {
   display: grid;
   place-items: center;
@@ -269,6 +357,11 @@ canvas {
 
   .preview-wrap {
     min-height: auto;
+  }
+
+  .preview-heading {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 
