@@ -1,6 +1,6 @@
-/* Mini Word — ローカル docx ビューア
+/* DocxPeek — ローカル docx ビューア
  *
- * .docx ファイルをブラウザだけで読み込み、Word のように紙面表示するアプリ。
+ * .docx ファイルをブラウザだけで読み込み、紙面のように覗き見できるアプリ。
  * 変換は mammoth.js（docx → HTML）を使用。
  */
 
@@ -66,14 +66,15 @@
 
   // ---------- テーマ ----------
   function setupTheme() {
-    const saved = localStorage.getItem("miniword.theme");
+    const STORAGE_KEY = "docxpeek.theme";
+    const saved = localStorage.getItem(STORAGE_KEY);
     const dark = saved === "dark";
     els.darkToggle.checked = dark;
     document.documentElement.dataset.theme = dark ? "dark" : "light";
     els.darkToggle.addEventListener("change", () => {
       const isDark = els.darkToggle.checked;
       document.documentElement.dataset.theme = isDark ? "dark" : "light";
-      localStorage.setItem("miniword.theme", isDark ? "dark" : "light");
+      localStorage.setItem(STORAGE_KEY, isDark ? "dark" : "light");
     });
   }
 
